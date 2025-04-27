@@ -26,7 +26,7 @@ jobs:
 
       - name: Create and run script
         run: |
-          cat > scrape-news.js << 'EOF'
+          cat > scrape-news.js << 'ENDOFFILE'
           const axios = require('axios');
           const cheerio = require('cheerio');
           const fs = require('fs');
@@ -103,7 +103,7 @@ _Last updated: ${new Date().toUTCString()}_
           }
 
           updateReadme();
-          EOF
+          ENDOFFILE
           
           node scrape-news.js
 
