@@ -2,12 +2,11 @@ name: Google News Scraper
 
 on:
   schedule:
-    # Runs every 6 hours
     - cron: '0 */6 * * *'
-  workflow_dispatch: # Allows manual triggering
+  workflow_dispatch:
 
 jobs:
-  update-readme:
+  scrape-news:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -21,38 +20,30 @@ jobs:
         with:
           node-version: '16'
 
-      - name: Install dependencies
-        run: npm install axios cheerio
-
-      - name: Create and run script
+      - name: Create news scraper
         run: |
-          cat > scrape-news.js << 'ENDOFFILE'
+          npm init -y
+          npm install axios cheerio
+          
+          cat > scraper.js << 'EOF'
           const axios = require('axios');
           const cheerio = require('cheerio');
           const fs = require('fs');
-
-          const keywords = ['AI', 'Machine Learning', 'Data Science'];
-          const maxArticlesPerKeyword = 5;
-
-          async function fetchNewsForKeyword(keyword) {
+          
+          // Get news from Google News for a keyword
+          async function getNews(keyword) {
             try {
-              const encodedKeyword = encodeURIComponent(keyword);
-              const url = `https://news.google.com/rss/search?q=${encodedKeyword}&hl=en-US&gl=US&ceid=US:en`;
-              
+              const url = `https://news.google.com/rss/search?q=${encodeURIComponent(keyword)}&hl=en-US&gl=US&ceid=US:en`;
               const response = await axios.get(url);
               const $ = cheerio.load(response.data, { xmlMode: true });
               
               const articles = [];
-              $('item').each((i, item) => {
-                if (i < maxArticlesPerKeyword) {
-                  const title = $(item).find('title').text();
-                  const link = $(item).find('link').text();
-                  const source = $(item).find('source').text();
-                  
+              $('item').each((i, el) => {
+                if (i < 5) { // Get top 5 articles
                   articles.push({
-                    title,
-                    link,
-                    source
+                    title: $(el).find('title').text(),
+                    link: $(el).find('link').text(),
+                    source: $(el).find('source').text()
                   });
                 }
               });
@@ -63,51 +54,49 @@ jobs:
               return [];
             }
           }
-
+          
+          // Update README with news
           async function updateReadme() {
-            let readmeContent = `# News Tracker
-
-This repository automatically tracks news articles from Google News on selected keywords.
-
-## How It Works
-
-- GitHub Action runs every 6 hours
-- Scrapes Google News for specified keywords
-- Removes duplicate articles
-- Updates this README with the latest news
-
-## Latest News
-
-_Last updated: ${new Date().toUTCString()}_
-
-`;
-
+            // Define keywords
+            const keywords = ['AI', 'Machine Learning', 'Data Science'];
+            
+            // Start README content
+            let content = `# News Tracker\n\n`;
+            content += `This repository automatically tracks news articles from Google News.\n\n`;
+            content += `## Latest News\n\n`;
+            content += `_Last updated: ${new Date().toUTCString()}_\n\n`;
+            
+            // Get news for each keyword
             for (const keyword of keywords) {
-              const articles = await fetchNewsForKeyword(keyword);
+              const articles = await getNews(keyword);
               
               if (articles.length > 0) {
-                readmeContent += `\n### ${keyword}\n\n`;
+                content += `### ${keyword}\n\n`;
                 
                 for (const article of articles) {
-                  readmeContent += `- [${article.title}](${article.link})`;
+                  content += `- [${article.title}](${article.link})`;
                   if (article.source) {
-                    readmeContent += ` - ${article.source}`;
+                    content += ` - ${article.source}`;
                   }
-                  readmeContent += '\n';
+                  content += '\n';
                 }
+                
+                content += '\n';
               }
             }
-
-            fs.writeFileSync('README.md', readmeContent);
-            console.log('README.md updated successfully');
+            
+            // Write to README
+            fs.writeFileSync('README.md', content);
+            console.log('README updated successfully');
           }
-
-          updateReadme();
-          ENDOFFILE
           
-          node scrape-news.js
+          // Run the update
+          updateReadme();
+          EOF
+          
+          node scraper.js
 
-      - name: Commit and push changes
+      - name: Commit changes
         run: |
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
