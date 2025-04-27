@@ -1,1 +1,133 @@
+name: News Scraper
 
+on:
+  schedule:
+    # Runs every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  scrape-news:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install feedparser pytz requests beautifulsoup4
+      
+      - name: Create script and run
+        run: |
+          cat > scrape_news.py << 'EOF'
+import feedparser
+import datetime
+import pytz
+import hashlib
+import os
+import re
+from urllib.parse import quote
+
+# Keywords to search for
+KEYWORDS = ["ai", "machine learning", "data science"]  # You can modify these
+
+# Constants
+MAX_ARTICLES_PER_KEYWORD = 5
+
+def fetch_google_news(keyword):
+    """Fetch news from Google News RSS feed for a given keyword."""
+    encoded_keyword = quote(keyword)
+    feed_url = f"https://news.google.com/rss/search?q={encoded_keyword}&hl=en-US&gl=US&ceid=US:en"
+    feed = feedparser.parse(feed_url)
+    
+    articles = []
+    for entry in feed.entries[:MAX_ARTICLES_PER_KEYWORD]:
+        article = {
+            'title': entry.title,
+            'link': entry.link,
+            'source': entry.source.title if hasattr(entry, 'source') else "Unknown source",
+            'id': hashlib.md5(entry.link.encode()).hexdigest()
+        }
+        articles.append(article)
+    
+    return articles
+
+def update_readme(all_articles):
+    """Update the README.md with fetched news articles."""
+    try:
+        with open("README.md", "r") as f:
+            content = f.read()
+    except FileNotFoundError:
+        content = "# News Tracker\n\nAutomatically updated with latest news.\n\n"
+    
+    # Find existing news section or prepare to add it
+    news_section_pattern = r"## Latest News.*?(?=^#|\Z)"
+    news_section = re.search(news_section_pattern, content, re.DOTALL | re.MULTILINE)
+    
+    # Current time in UTC
+    now = datetime.datetime.now(pytz.timezone('UTC'))
+    last_updated = now.strftime("%Y-%m-%d %H:%M:%S %Z")
+    
+    # Create new news section
+    new_section = f"## Latest News\n\n_Last updated: {last_updated}_\n\n"
+    
+    # Group articles by keyword
+    for keyword in KEYWORDS:
+        keyword_articles = []
+        for article in all_articles:
+            if article.get('keyword') == keyword:
+                keyword_articles.append(article)
+        
+        if keyword_articles:
+            new_section += f"### {keyword.title()}\n\n"
+            for article in keyword_articles[:MAX_ARTICLES_PER_KEYWORD]:
+                new_section += f"- [{article['title']}]({article['link']}) - {article['source']}\n"
+            new_section += "\n"
+    
+    # Replace or append news section
+    if news_section:
+        content = content.replace(news_section.group(0), new_section)
+    else:
+        content += "\n\n" + new_section
+    
+    # Write updated content back to README
+    with open("README.md", "w") as f:
+        f.write(content)
+
+def main():
+    all_articles = []
+    
+    # Fetch articles for each keyword
+    for keyword in KEYWORDS:
+        print(f"Fetching news for: {keyword}")
+        articles = fetch_google_news(keyword)
+        
+        # Tag articles with their keyword
+        for article in articles:
+            article['keyword'] = keyword
+            
+        all_articles.extend(articles)
+    
+    # Update README with articles
+    update_readme(all_articles)
+    print(f"Updated README with {len(all_articles)} articles")
+
+if __name__ == "__main__":
+    main()
+EOF
+          python scrape_news.py
+      
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          git add README.md
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update news: $(date +'%Y-%m-%d %H:%M:%S')"
+          git push
